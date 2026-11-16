@@ -2,6 +2,8 @@
 
 같은 쿠폰 기능 추가 과제를 Codex에 반복해서 맡기고, 작업 지침에 따라 입력 토큰이 어떻게 달라지는지 비교합니다. 직접 수정할 대상은 `edit/AGENTS.md`와 필요한 경우의 스킬입니다. 기능 구현은 실행 도구가 Codex에 요청합니다.
 
+처음 참여한다면 [수강생 사용 시나리오](guides/student-workflow.md)를 따라 준비 확인부터 실행·개선·결과 공유까지 진행합니다.
+
 | 시간 | 진행 |
 |---|---|
 | 11:00–11:30 | 실습 소개와 환경 설정 |
@@ -11,38 +13,27 @@
 
 ## 처음 시작할 때
 
-연구원이 참여 권한을 부여한 GitHub 계정으로 저장소를 받습니다.
+수업 전에 **Codex CLI 로그인과 GitHub collaborator 등록**을 완료합니다. 준비된 실습 폴더에서 다음 명령으로 확인합니다.
 
 ```bash
-git clone https://github.com/legenduck/Architect-Practice-1.git
-cd Architect-Practice-1
+python start.py doctor
 ```
 
-이 README와 `lab.py`가 있는 폴더에서 터미널을 엽니다. Python 3.10 이상, Git, 사내에서 허용된 Codex CLI와 계정 로그인이 필요합니다. Codex 설치와 로그인은 연구원의 사내 환경 안내를 따릅니다. API 키를 발급하거나 입력하는 과정은 없습니다.
+필요한 Python 패키지를 자동으로 준비하고, 실행 환경과 Git 제출 접속을 점검합니다. `[FAIL]`이 있으면 표시된 조치를 확인하거나 `doctor.log`를 연구원에게 전달합니다. 모두 통과하면 시작 파일을 실행합니다.
 
-macOS 또는 Linux:
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements-lab.txt
-python lab.py init
-python lab.py enroll p01
-```
+| 운영체제 | 시작 방법 |
+|---|---|
+| Windows | `start.bat` 실행 |
+| macOS | `start.command` 실행 |
+| Linux | 이 폴더의 터미널에서 `./start.command` 실행 |
 
-Windows PowerShell:
-```powershell
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements-lab.txt
-python lab.py init
-python lab.py enroll p01
-```
+처음 한 번 배정받은 참가자 번호를 입력하면 개인 브랜치를 준비하고 메뉴를 엽니다. 시작할 때도 `doctor`를 자동 실행하며, 기존 작업과 설치된 환경을 유지합니다.
 
-`p01`은 예시입니다. 연구원이 배정한 참가자 번호를 사용합니다. `enroll` 명령이 `students/참가자번호` 브랜치를 선택하며, 기존 코드나 지침을 지우지 않습니다. 첫 제출 전에 Git의 사용자 이름과 이메일, GitHub push 권한이 준비되어 있어야 합니다. 설정은 연구원의 사전 안내를 따릅니다.
+메뉴에서 기본 지침 → Progressive disclosure → 직접 개선을 진행합니다. 직접 수정할 파일은 `edit/AGENTS.md`입니다. 실행 후에도 메뉴가 유지되므로 바로 다음 실험을 선택할 수 있습니다. 제출 후 채점 결과는 6번으로 가져오고, 제출에 실패하면 5번으로 같은 실행을 재제출합니다. 종료는 0번입니다.
 
-설정이 완료된 교육용 PC에서는 연구원이 안내한 환경 활성화 이후 `python lab.py doctor`부터 확인합니다. 설치나 로그인 오류가 나면 오류 화면을 유지하고 연구원에게 요청합니다.
+연구원은 수업 전에 [강사용 준비 안내](guides/instructor-setup.md)에 따라 공통 환경과 제출 접속을 준비합니다. `doctor`는 모델을 호출하지 않습니다.
 
-참가자 번호는 브랜치 선택 시 `config.json`에 저장됩니다. 모델과 프로필은 연구원이 배포한 설정으로 지정하고 `python lab.py doctor`로 확인합니다. 모델을 바꾸면 이전 실행과 같은 조건의 비교가 되지 않습니다.
+아래는 메뉴 대신 터미널을 직접 사용하는 경우입니다. 먼저 실습 가상환경을 활성화합니다(macOS/Linux: `source .venv/bin/activate`, Windows PowerShell: `.\.venv\Scripts\Activate.ps1`).
 
 ## 기본 작업 지침으로 실행
 
@@ -93,7 +84,11 @@ python lab.py run custom --submit --wait 120
 | 채점 실패 | 절감 결과로 인정하지 않고 지침을 보완한 뒤 다시 실행합니다. |
 | 실행 오류 또는 측정 누락 | 기록을 유지하고 연구원에게 확인을 요청합니다. |
 
+결과 화면은 실행 상태, 제출 상태와 채점 상태를 따로 표시합니다. `실행 종료`는 기능 완성이나 채점 통과를 뜻하지 않습니다. `구현 변경 없음`, 실행 실패, 시간 초과인 기록은 자동 제출하지 않으며, 선택한 실행의 최종 응답과 원본 로그에서 원인을 확인할 수 있습니다. 측정된 사용량은 실패 기록에도 남깁니다.
+
 결과 파일은 실험 순서로 표시합니다. 다른 참가자와 순위를 비교하지 않습니다.
+
+운영 규정·데이터·작업 지침·테스트 보조 도구는 실행 중 고정합니다. 기능 구현에 따라 필요한 API 문서와 아키텍처 문서·ADR 갱신은 정상 작업으로 인정합니다.
 
 ## 13:25까지 결과 제출
 
@@ -113,7 +108,7 @@ python lab.py sync
 
 이 명령으로 `results` 브랜치의 채점 결과를 가져오고 `results.html`을 갱신합니다. 채점 결과는 제출 파일과 연결되어 있으므로, 수정한 새 제출에 이전 결과를 재사용하지 않습니다.
 
-- [전체 제출 현황](https://github.com/legenduck/Architect-Practice-1/tree/results)
+- [전체 결과 화면](https://legenduck.github.io/Architect-Practice-1/) · [채점 파일](https://github.com/legenduck/Architect-Practice-1/tree/results)
 - 제출 후 `main`으로 병합하거나 Pull Request를 만들 필요는 없습니다.
 - 인증이나 push 오류가 발생하면 실행 기록을 보존하고 연구원에게 확인을 요청합니다. 강제 push로 해결하지 않습니다.
 - 이 저장소는 공개되어 있습니다. 제공된 가상 과제와 실습 결과만 사용하고 회사 코드나 개인 업무 자료는 넣지 않습니다.

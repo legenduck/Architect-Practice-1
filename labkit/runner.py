@@ -22,6 +22,7 @@ from .common import (
     source_digest,
     write_json,
 )
+from .preflight import Check, execution_checks, require_checks
 from .report import render_report
 from .usage import parse_usage
 
@@ -32,10 +33,11 @@ LABELS = {
     "custom": "직접 개선",
 }
 DEFAULTS = {
-    "participant": "P01",
+    "participant": None,
     "codex_command": ["codex"],
     "model": None,
     "profile": None,
+    "reasoning_effort": None,
     "timeout_seconds": 900,
     "repository": "https://github.com/legenduck/Architect-Practice-1.git",
 }
@@ -43,8 +45,18 @@ DEFAULTS = {
 
 def protected_files(workspace: Path) -> dict:
     paths = set(workspace.rglob("AGENTS*.md"))
-    for name in ["data", "docs/policy", ".agents/skills"]:
+    for name in ["data", "docs", ".agents/skills"]:
         paths.update((workspace / name).rglob("*"))
+    # The project requires CLI docs and ADR updates when implementing a feature.
+    # Those are deliverables; operating rules and other supplied context stay fixed.
+    mutable_docs = (workspace / "docs/api", workspace / "docs/architecture")
+    paths = {
+        p
+        for p in paths
+        if not any(p.is_relative_to(directory) for directory in mutable_docs)
+        or p.name.startswith("AGENTS")
+    }
+    paths.add(workspace / "tools/test_summary.py")
     return {
         p.relative_to(workspace).as_posix(): digest(p)
         for p in sorted(paths)
@@ -54,7 +66,12 @@ def protected_files(workspace: Path) -> dict:
 
 def config(root: Path) -> dict:
     path = root / "config.json"
-    cfg = {**DEFAULTS, **(read_json(path) if path.exists() else {})}
+    example = root / "config.example.json"
+    cfg = {
+        **DEFAULTS,
+        **(read_json(example) if example.exists() else {}),
+        **(read_json(path) if path.exists() else {}),
+    }
     if (
         not isinstance(cfg["codex_command"], list)
         or not cfg["codex_command"]
@@ -66,6 +83,19 @@ def config(root: Path) -> dict:
         or not 1 <= cfg["timeout_seconds"] <= 3600
     ):
         raise ValueError("실행 제한 시간은 1~3600초 범위여야 합니다.")
+    if cfg["model"] is not None and (
+        not isinstance(cfg["model"], str) or not cfg["model"].strip()
+    ):
+        raise ValueError("model은 연구원이 지정한 모델 이름이어야 합니다.")
+    if cfg["reasoning_effort"] not in (
+        None,
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+    ):
+        raise ValueError("reasoning_effort 설정을 확인하세요.")
     return cfg
 
 
@@ -90,9 +120,9 @@ def initialize(root: Path) -> None:
         (edit / "tools").mkdir(exist_ok=True)
         shutil.copyfile(root / "labkit/test_summary.py", edit / "tools/test_summary.py")
     if not (root / "config.json").exists():
-        write_json(root / "config.json", DEFAULTS)
+        write_json(root / "config.json", config(root))
     render_report(root)
-    print("준비 완료. 직접 개선할 작업 지침:", edit / "AGENTS.md")
+    print("작업 폴더 확인. 직접 개선할 작업 지침:", edit / "AGENTS.md")
 
 
 def prepare_run(root: Path, variant: str, cfg: dict) -> tuple[Path, dict]:
@@ -154,8 +184,10 @@ def prepare_run(root: Path, variant: str, cfg: dict) -> tuple[Path, dict]:
         "test_helper_sha256": digest(root / "labkit/test_summary.py"),
         "model": cfg["model"] or "CLI 기본 설정",
         "profile": cfg["profile"],
+        "reasoning_effort": cfg.get("reasoning_effort"),
         "codex_command": cfg["codex_command"],
         "timeout_seconds": cfg["timeout_seconds"],
+        "python_version": sys.version.split()[0],
     }
     summary = {
         "schema": 1,
@@ -166,9 +198,11 @@ def prepare_run(root: Path, variant: str, cfg: dict) -> tuple[Path, dict]:
         "conditions": conditions,
         "instructions_sha256": digest(snapshot / "AGENTS.md"),
         "protected_before": protected_files(workspace),
+        "initial_source_sha256": source_digest(workspace),
         "comparison_valid": True,
         "execution_status": "prepared",
         "grade": {"status": "pending"},
+        "submission_status": "not_submitted",
         "techniques": [],
         "note": "",
         "usage": parse_usage(folder / "events.jsonl"),
@@ -201,12 +235,13 @@ def make_submission(root: Path, folder: Path, summary: dict) -> Path:
     if protected_files(workspace) != summary.get("protected_before"):
         summary["comparison_valid"] = False
         summary["comparison_message"] = (
-            "실행 지침, 운영 규정 또는 데이터가 변경되어 비교에서 제외합니다."
+            "실행 지침, 문서, 데이터 또는 테스트 보조 도구가 변경되어 비교에서 제외합니다."
         )
     summary["source_sha256"] = sha
     write_json(folder / "summary.json", summary)
     target = root / "submissions" / (summary["id"] + ".zip")
     target.parent.mkdir(exist_ok=True)
+    previous_archive = digest(target) if target.exists() else None
     files = [(folder / "summary.json", "summary.json")]
     for prefix in ["src", "tests"]:
         for path in sorted((workspace / prefix).rglob("*.py")):
@@ -229,11 +264,26 @@ def make_submission(root: Path, folder: Path, summary: dict) -> Path:
             raw = path.read_bytes()
             if name == "summary.json":
                 payload = dict(summary)
-                payload.pop("grade", None)
+                for key in ("grade", "submission_status", "submission_error"):
+                    payload.pop(key, None)
                 raw = json.dumps(
                     payload, ensure_ascii=False, sort_keys=True, indent=2
                 ).encode()
             archive.writestr(info, raw)
+    if digest(target) != previous_archive:
+        summary["submission_status"] = "not_submitted"
+        summary.pop("submission_error", None)
+    # Local metadata belongs to the current ZIP, even if a later push fails.
+    if summary.get("grade", {}).get("status") in ("passed", "failed", "error"):
+        from .github_flow import git
+
+        blob = git(root, "hash-object", "--", str(target)).stdout.strip()
+        if blob != summary["grade"].get("artifact_blob"):
+            summary["grade"] = {
+                "status": "pending",
+                "message": "제출 파일이 변경되어 새 채점 결과가 필요합니다.",
+            }
+    write_json(folder / "summary.json", summary)
     return target
 
 
@@ -256,6 +306,12 @@ def sync_grades(root: Path, cfg: dict) -> int:
         summary = read_json(path)
         receipt = receipt_for(root, folder, cfg)
         if receipt is None:
+            if summary.get("grade", {}).get("status") in ("passed", "failed", "error"):
+                summary["grade"] = {
+                    "status": "pending",
+                    "message": "현재 제출 파일과 일치하는 채점 결과가 없습니다.",
+                }
+                write_json(path, summary)
             continue
         if source_digest(folder / "workspace") != summary.get("source_sha256"):
             summary["comparison_valid"] = False
@@ -263,6 +319,7 @@ def sync_grades(root: Path, cfg: dict) -> int:
                 "실행 후 소스가 변경되어 비교에서 제외합니다."
             )
         apply_grade(summary, receipt)
+        summary["submission_status"] = "submitted"
         write_json(path, summary)
         count += 1
     render_report(root)
@@ -274,10 +331,35 @@ def submit_github(
 ) -> None:
     from .github_flow import push_submission
 
+    if summary.get("execution_status") != "completed":
+        raise ValueError(
+            "정상 종료하고 소스를 변경한 실행만 제출할 수 있습니다. 실행 로그를 확인하세요."
+        )
+    initial = summary.get("initial_source_sha256")
+    if initial is None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as temporary:
+            baseline = Path(temporary)
+            extract_zip((root / "assets/parkfee.zip").read_bytes(), baseline)
+            initial = source_digest(baseline)
+    if source_digest(folder / "workspace") == initial:
+        raise ValueError(
+            "초기 코드에서 소스 변경이 없습니다. 구현을 수행한 뒤 새로 실행하세요."
+        )
+
     archive = make_submission(root, folder, summary)
-    status = push_submission(root, folder, archive, cfg)
+    try:
+        status = push_submission(root, folder, archive, cfg)
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        summary.update(submission_status="failed", submission_error=str(error))
+        write_json(folder / "summary.json", summary)
+        render_report(root)
+        raise
     print("GitHub 제출 완료:", status["branch"], status["commit"][:12])
     summary["grade"] = {"status": "pending", "message": "중앙 채점 대기"}
+    summary["submission_status"] = "submitted"
+    summary.pop("submission_error", None)
     write_json(folder / "summary.json", summary)
     deadline = time.monotonic() + min(max(wait_seconds, 0), 180)
     while wait_seconds > 0:
@@ -304,9 +386,11 @@ def apply_grade(summary: dict, receipt: dict) -> None:
     summary["grade"] = receipt
 
 
-def execute(root: Path, variant: str, cfg: dict) -> Path:
+def execute(root: Path, variant: str, cfg: dict, *, prechecked: bool = False) -> Path:
     if not cfg["model"]:
         raise ValueError("config.json의 model을 연구원이 지정한 값으로 설정하세요.")
+    if not prechecked:
+        require_checks(execution_checks(root, cfg))
     folder, summary = prepare_run(root, variant, cfg)
     started = time.monotonic()
     command = list(cfg["codex_command"])
@@ -337,11 +421,28 @@ def execute(root: Path, variant: str, cfg: dict) -> Path:
             command += ["--model", cfg["model"]]
         if cfg["profile"]:
             command += ["--profile", cfg["profile"]]
+        if cfg.get("reasoning_effort"):
+            command += [
+                "-c",
+                'model_reasoning_effort="' + cfg["reasoning_effort"] + '"',
+            ]
         command.append("-")
         env = dict(os.environ)
+        # lab.py may be invoked by its venv Python without shell activation.
+        # Codex's shell snapshot must inherit the same interpreter and tools.
+        env["PATH"] = (
+            str(Path(sys.executable).parent) + os.pathsep + env.get("PATH", "")
+        )
+        if sys.prefix != sys.base_prefix:
+            env["VIRTUAL_ENV"] = sys.prefix
         # Use the user's Codex account session, not a direct model API key.
         env.pop("OPENAI_API_KEY", None)
         env.pop("CODEX_API_KEY", None)
+        print(
+            f"{LABELS[variant]} 실행 중 · 최대 {cfg['timeout_seconds'] // 60}분",
+            flush=True,
+        )
+        print("진행 로그:", folder / "events.jsonl", flush=True)
         code = run_process(
             command,
             folder / "workspace",
@@ -351,24 +452,8 @@ def execute(root: Path, variant: str, cfg: dict) -> Path:
             (root / "task/request.md").read_text(encoding="utf-8"),
             env,
         )
-        usage = parse_usage(folder / "events.jsonl")
-        try:
-            rollout = find_rollout(usage["thread_id"])
-            if rollout:
-                usage = parse_usage(folder / "events.jsonl", rollout)
-        except OSError:
-            summary["measurement_message"] = (
-                "호출별 세션 기록에 접근할 수 없어 실행 총량만 표시합니다."
-            )
-        summary["usage"] = usage
         summary["exit_code"] = code
-        summary["execution_status"] = (
-            "completed" if code == 0 and not usage["failed_event"] else "failed"
-        )
-        if usage["input_tokens"] is None:
-            summary["measurement_message"] = (
-                "총 입력 토큰을 확인할 수 없어 토큰 절감 비교에서 제외합니다."
-            )
+        summary["execution_status"] = "completed" if code == 0 else "failed"
     except subprocess.TimeoutExpired:
         summary["execution_status"] = "timeout"
     except KeyboardInterrupt:
@@ -377,19 +462,54 @@ def execute(root: Path, variant: str, cfg: dict) -> Path:
         summary["execution_status"] = "error"
         summary["error"] = str(error)
     summary["elapsed_seconds"] = round(time.monotonic() - started, 3)
+    usage = parse_usage(folder / "events.jsonl")
+    try:
+        rollout = find_rollout(usage["thread_id"])
+        if rollout:
+            usage = parse_usage(folder / "events.jsonl", rollout)
+    except OSError:
+        summary["measurement_message"] = (
+            "호출별 세션 기록에 접근할 수 없어 실행 총량만 표시합니다."
+        )
+    summary["usage"] = usage
+    try:
+        summary["source_changed"] = (
+            source_digest(folder / "workspace") != summary["initial_source_sha256"]
+        )
+    except (OSError, ValueError) as error:
+        summary["execution_status"] = "error"
+        summary["source_changed"] = None
+        summary["error"] = "실행 후 소스를 확인하지 못했습니다: " + str(error)
+    if summary["execution_status"] == "completed":
+        if (
+            usage["failed_event"]
+            or usage["completed_turns"] != 1
+            or usage["malformed_lines"]
+        ):
+            summary["execution_status"] = "failed"
+            summary["error"] = (
+                "정상 완료 이벤트를 확인하지 못했습니다. 원본 실행 로그를 확인하세요."
+            )
+        elif not summary["source_changed"]:
+            summary["execution_status"] = "no_changes"
+            summary["error"] = (
+                "초기 코드에서 소스 변경이 없습니다. Codex 최종 응답과 명령 실행 오류를 확인하세요."
+            )
+    if usage["input_tokens"] is None:
+        summary["measurement_message"] = (
+            "총 입력 토큰을 확인할 수 없어 토큰 절감 비교에서 제외합니다."
+        )
     summary["comparison_valid"] = (
         protected_files(folder / "workspace") == summary["protected_before"]
     )
     if not summary["comparison_valid"]:
         summary["comparison_message"] = (
-            "실행 중 지침이나 운영 규정 또는 데이터가 변경되어 비교에서 제외합니다."
+            "실행 중 지침, 문서, 데이터 또는 테스트 보조 도구가 변경되어 비교에서 제외합니다."
         )
     write_json(folder / "summary.json", summary)
     try:
         if summary["execution_status"] == "completed":
             prepare_submission(root, folder, summary)
-        else:
-            make_submission(root, folder, summary)
     except (OSError, ValueError) as error:
         summary["grade"] = {"status": "error", "message": str(error)}
         write_json(folder / "summary.json", summary)
@@ -413,30 +533,125 @@ def get_run(root: Path, run_id: str) -> Path:
     return folder
 
 
-def doctor(root: Path) -> bool:
-    cfg = config(root)
-    ok = True
-    for label, command in [
-        ("Python 테스트 도구", [sys.executable, "-m", "pytest", "--version"]),
-        ("Git", ["git", "--version"]),
-        ("Codex", cfg["codex_command"] + ["--version"]),
-    ]:
+def doctor(
+    root: Path,
+    *,
+    cfg: dict | None = None,
+    submission: bool = True,
+    include_login: bool = True,
+) -> bool:
+    cfg = config(root) if cfg is None else cfg
+    checks = execution_checks(root, cfg, include_login=include_login)
+    if submission:
+        from .github_flow import check_results_ready, check_submission_ready
+
         try:
-            p = subprocess.run(command, capture_output=True, text=True, timeout=20)
-            passed = p.returncode == 0
-            print(("확인" if passed else "확인 필요"), label, p.stdout.strip())
-            ok = ok and passed
-        except (OSError, subprocess.TimeoutExpired):
-            print("확인 필요", label)
-            ok = False
-    print(
-        "과제 실행 모델:",
-        cfg["model"] or "미설정 (연구원이 제공한 config.json을 확인하세요)",
+            check_submission_ready(root, cfg, require_enrollment=False)
+            checks.append(Check("Git 제출 접속", True))
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            checks.append(
+                Check(
+                    "Git 제출 접속",
+                    False,
+                    str(error),
+                    "Git 인증·제출자 정보와 저장소 참여 설정을 확인하세요.",
+                )
+            )
+        try:
+            check_results_ready(root, cfg)
+            checks.append(Check("Git 채점 결과 수신 경로", True))
+        except (OSError, ValueError, subprocess.SubprocessError) as error:
+            checks.append(
+                Check(
+                    "Git 채점 결과 수신 경로",
+                    False,
+                    str(error),
+                    "강사가 Actions의 Grade practice submissions를 먼저 실행해야 합니다.",
+                )
+            )
+    for check in checks:
+        print("[OK]" if check.ok else "[FAIL]", check.name)
+        if not check.ok:
+            hint = check.fix or next(
+                iter(check.detail.splitlines()), "doctor.log를 확인하세요."
+            )
+            print("  " + hint[:180])
+    (root / "doctor.log").write_text(
+        "\n\n".join(
+            f"{'OK' if c.ok else 'FAIL'} {c.name}\n{c.detail}\n{c.fix}" for c in checks
+        ),
+        encoding="utf-8",
     )
-    ok = ok and bool(cfg["model"])
-    print("제출 저장소:", cfg["repository"])
-    print("채점 결과: results 브랜치에서 python lab.py sync로 가져옵니다.")
+    ok = all(check.ok for check in checks)
+    print(
+        "준비 완료. 시작 파일을 실행하면 실습 메뉴가 열립니다."
+        if ok
+        else "준비 확인이 필요합니다. 상세 내용: doctor.log"
+    )
     return ok
+
+
+def run_menu(root: Path, *, ready_config: dict | None = None) -> None:
+    from .github_flow import submission_branch
+
+    ready_config = dict(ready_config) if ready_config is not None else None
+    while True:
+        print(
+            "\n1 기본 지침 실행·제출\n2 Progressive disclosure 실행·제출\n3 직접 개선 실행·제출\n4 결과 보기\n5 최근 실행 제출·재제출\n6 채점 결과 가져오기\n7 doctor\n0 종료"
+        )
+        try:
+            choice = input("번호: ").strip()
+            if choice == "0":
+                return
+            cfg = config(root)
+            if choice in ("1", "2", "3"):
+                submission_branch(root, cfg)
+                if cfg != ready_config:
+                    if not doctor(root, cfg=cfg):
+                        continue
+                    ready_config = dict(cfg)
+                folder = execute(
+                    root,
+                    ["baseline", "disclosure", "custom"][int(choice) - 1],
+                    cfg,
+                    prechecked=True,
+                )
+                summary = read_json(folder / "summary.json")
+                if summary["execution_status"] == "completed":
+                    submit_github(root, folder, cfg, summary)
+                    print("6번으로 채점 결과를 가져오세요.")
+                else:
+                    ready_config = None
+            elif choice == "5":
+                folder = get_run(root, "latest")
+                summary = read_json(folder / "summary.json")
+                techniques = input("적용한 기법(쉼표 구분, Enter로 유지): ").strip()
+                note = input("변경 내용(Enter로 유지): ").strip()
+                if techniques:
+                    summary["techniques"] = [
+                        x.strip() for x in techniques.split(",") if x.strip()
+                    ]
+                if note:
+                    summary["note"] = note
+                submit_github(root, folder, cfg, summary)
+            elif choice == "6":
+                print("반영한 채점 결과:", sync_grades(root, cfg))
+            elif choice == "7":
+                ready_config = dict(cfg) if doctor(root, cfg=cfg) else None
+                continue
+            elif choice != "4":
+                print("0~7 중에서 선택하세요.")
+                continue
+            webbrowser.open(render_report(root).as_uri())
+        except EOFError:
+            return
+        except KeyboardInterrupt:
+            print("취소했습니다. 메뉴에서 이어서 진행할 수 있습니다.")
+        except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
+            ready_config = None
+            print(
+                f"확인 필요: {error}\n기록은 보존했습니다. 해결 후 메뉴에서 다시 시도하세요."
+            )
 
 
 def main() -> None:
@@ -464,38 +679,7 @@ def main() -> None:
     try:
         if args.action is None:
             initialize(root)
-            print(
-                "1 기본 작업 지침 실행 후 제출\n2 Progressive disclosure 실행 후 제출\n3 직접 개선한 지침 실행 후 제출\n4 결과 화면 열기\n5 최근 실행의 기법과 설명 제출\n6 중앙 채점 결과 가져오기"
-            )
-            choice = input("번호: ").strip()
-            if choice in ("1", "2", "3"):
-                from .github_flow import submission_branch
-
-                cfg = config(root)
-                submission_branch(root, cfg)
-                folder = execute(
-                    root,
-                    ["baseline", "disclosure", "custom"][int(choice) - 1],
-                    cfg,
-                )
-                summary = read_json(folder / "summary.json")
-                if summary["execution_status"] == "completed":
-                    submit_github(root, folder, cfg, summary, 120)
-            elif choice == "5":
-                folder = get_run(root, "latest")
-                summary = read_json(folder / "summary.json")
-                summary["techniques"] = [
-                    x.strip()
-                    for x in input("적용한 기법(쉼표로 구분): ").split(",")
-                    if x.strip()
-                ]
-                summary["note"] = input("변경한 내용: ")
-                submit_github(root, folder, config(root), summary, 120)
-            elif choice == "6":
-                print("반영한 채점 결과:", sync_grades(root, config(root)))
-            elif choice != "4":
-                raise ValueError("1~6 중에서 선택하세요.")
-            webbrowser.open(render_report(root).as_uri())
+            run_menu(root)
         elif args.action == "init":
             initialize(root)
         elif args.action == "enroll":
@@ -508,9 +692,9 @@ def main() -> None:
             sys.exit(0 if doctor(root) else 1)
         elif args.action == "run":
             if args.submit:
-                from .github_flow import submission_branch
+                from .github_flow import check_submission_ready
 
-                submission_branch(root, config(root))
+                check_submission_ready(root, config(root))
             folder = execute(root, args.variant, config(root))
             summary = read_json(folder / "summary.json")
             if summary["execution_status"] != "completed":

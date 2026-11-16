@@ -1,4 +1,5 @@
 .venv/
+.lab-preflight-*/
 __pycache__/
 .pytest_cache/
 .ruff_cache/
@@ -8,5 +9,6 @@ config.json
 edit/
 runs/
 results.html
+doctor.log
 .coverage
 *.egg-info/

@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -111,6 +112,36 @@ def submission_branch(root: Path, cfg: dict) -> str:
         raise ValueError(
             f"먼저 python lab.py enroll {identifier}로 개인 브랜치를 선택하세요. main에는 제출하지 않습니다."
         )
+    return branch
+
+
+def check_submission_ready(
+    root: Path, cfg: dict, *, require_enrollment: bool = True
+) -> str:
+    """Check identity and remote access without creating a commit or remote ref."""
+    if require_enrollment:
+        branch = submission_branch(root, cfg)
+    else:
+        verify_remote(root, cfg.get("repository", REPOSITORY))
+        branch = (
+            BRANCH_PREFIX + participant(cfg["participant"])
+            if cfg.get("participant")
+            else None
+        )
+        if git(root, "branch", "--show-current").stdout.strip() != branch:
+            if git(root, "status", "--porcelain").stdout.strip():
+                raise ValueError(
+                    "저장소 변경사항을 먼저 정리하세요. 직접 개선할 지침은 edit/AGENTS.md입니다."
+                )
+            # Enrollment may resume an existing remote branch after this check.
+            # Probe access without trying to replace its history with local main.
+            branch = BRANCH_PREFIX + "doctor-" + uuid.uuid4().hex[:8]
+    for key in ("user.name", "user.email"):
+        if not git(root, "config", "--get", key, check=False).stdout.strip():
+            raise ValueError(
+                f'Git {key}가 없습니다. git config --local {key} "본인 정보"로 설정하세요.'
+            )
+    git(root, "push", "--dry-run", "--porcelain", "origin", "HEAD:refs/heads/" + branch)
     return branch
 
 

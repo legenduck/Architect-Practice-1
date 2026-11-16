@@ -8,6 +8,7 @@ from pathlib import Path
 
 from labkit.common import source_digest, write_json
 from labkit.github_flow import (
+    check_submission_ready,
     enroll,
     fetch_results,
     participant,
@@ -136,6 +137,54 @@ class GitWorkflowTests(unittest.TestCase):
                 {**self.cfg, "repository": "https://github.com/other/course.git"},
                 "p01",
             )
+
+    def test_submission_preflight_does_not_create_a_remote_branch(self):
+        enroll(self.student, self.cfg, "p01")
+        self.assertEqual(check_submission_ready(self.student, self.cfg), "students/p01")
+        self.assertNotEqual(
+            git(
+                self.remote, "rev-parse", "--verify", "students/p01", check=False
+            ).returncode,
+            0,
+        )
+
+    def test_submission_preflight_requires_git_identity(self):
+        enroll(self.student, self.cfg, "p01")
+        git(self.student, "config", "user.email", "")
+        with self.assertRaisesRegex(ValueError, "user.email"):
+            check_submission_ready(self.student, self.cfg)
+
+    def test_doctor_can_check_submission_before_participant_enrollment(self):
+        cfg = {**self.cfg, "participant": None}
+        self.assertTrue(
+            check_submission_ready(
+                self.student, cfg, require_enrollment=False
+            ).startswith("students/doctor-")
+        )
+        self.assertIsNone(cfg["participant"])
+        self.assertEqual(
+            git(self.student, "branch", "--show-current").stdout.strip(), "main"
+        )
+        self.assertEqual(
+            git(
+                self.remote, "for-each-ref", "--format=%(refname)", "refs/heads"
+            ).stdout.strip(),
+            "refs/heads/main",
+        )
+
+    def test_doctor_does_not_overwrite_an_existing_participant_branch(self):
+        enroll(self.student, self.cfg, "p01")
+        folder, archive = self.artifact()
+        submitted = push_submission(self.student, folder, archive, self.cfg)
+        git(self.student, "switch", "main")
+        check_submission_ready(self.student, self.cfg, require_enrollment=False)
+        self.assertEqual(
+            git(self.student, "branch", "--show-current").stdout.strip(), "main"
+        )
+        self.assertEqual(
+            git(self.remote, "rev-parse", "students/p01").stdout.strip(),
+            submitted["commit"],
+        )
 
     def test_sync_invalidates_a_saved_grade_after_manual_resubmission(self):
         enroll(self.student, self.cfg, "p01")

@@ -6,6 +6,8 @@
 
 `main`에 이 변경을 반영한 후 저장소 Settings → Pages → Source를 **GitHub Actions**로 선택합니다. Actions에서 **Grade practice submissions**를 한 번 실행해 빈 결과 화면을 준비합니다. 포크에서는 Actions도 먼저 활성화합니다. `github-pages` 환경의 배포 브랜치 규칙에 `students/*`를 허용합니다.
 
+결과 게시 작업은 저장소 전용 SSH 배포 키를 사용합니다. Settings → Deploy keys에 쓰기 가능한 공개 키를 등록하고, 대응하는 개인 키를 Actions secret `RESULTS_DEPLOY_KEY`에 저장합니다. `results` 갱신 제한 규칙에는 Deploy keys 예외를 허용하되, 삭제·강제 push 금지 규칙은 별도로 유지합니다. `main` 보호 규칙에는 배포 키 예외를 추가하지 않습니다. 포크에서도 이 키와 규칙을 준비한 후 워크플로를 실행합니다.
+
 이후 `students/*`의 제출 ZIP push가 자동 채점을 시작합니다. 5분 주기 수집과 수동 실행도 지원합니다. 수강생 코드와 테스트는 네트워크·인증 정보가 없는 일회용 컨테이너에서 실행합니다. 원본 테스트, 제출 테스트, 운영 규정에서 작성한 쿠폰 검사 24개를 통과하면 `results` 브랜치에 채점 영수증을 기록하고 GitHub Pages를 갱신합니다. 기존 외부 채점기를 대체하는 별도 구현이므로 수업 전에 규정과 검사 범위를 검토합니다.
 
 전체 화면은 참가자·실행 순으로 표시하며, 통과한 동일 조건의 기본 실행과만 절감률을 계산합니다. 채점 파일의 제출 blob과 소스 체크섬이 일치해야 `python lab.py sync`에 반영됩니다. 변경하지 않은 제출은 재채점하지 않습니다.

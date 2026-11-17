@@ -33,6 +33,14 @@ python start.py doctor
 
 연구원은 수업 전에 [강사용 준비 안내](guides/instructor-setup.md)에 따라 공통 환경과 제출 접속을 준비합니다. `doctor`는 모델을 호출하지 않습니다.
 
+Windows 실습은 기본으로 **`unelevated` 샌드박스**를 사용합니다. 업데이트 후 `start.bat`을 실행하면 사전 점검과 과제 실행에 적용됩니다. 기존 설정에서 다른 방식을 명시했다면 다음 명령으로 바꾸고 다시 점검합니다.
+
+```bash
+python start.py doctor --windows-sandbox unelevated
+```
+
+선택은 이 실습 폴더의 `config.json`에 저장되며, 이후 시작 파일과 `python lab.py run ...`에도 적용됩니다. Codex 전역 설정은 바꾸지 않습니다. `doctor`와 실제 과제 실행 모두 같은 Windows 샌드박스 설정을 사용하고, 작업 폴더 쓰기 제한은 유지합니다. Codex 기본 선택으로 돌아가려면 `--windows-sandbox default`로 다시 점검합니다. 자세한 조건과 제한은 [Windows 샌드박스 안내](guides/instructor-setup.md#windows-샌드박스-1385-오류)를 확인하세요.
+
 아래는 메뉴 대신 터미널을 직접 사용하는 경우입니다. 먼저 실습 가상환경을 활성화합니다(macOS/Linux: `source .venv/bin/activate`, Windows PowerShell: `.\.venv\Scripts\Activate.ps1`).
 
 ## 기본 작업 지침으로 실행

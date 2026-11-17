@@ -33,6 +33,20 @@ Windows에서는 `py -3`, macOS/Linux에서는 `python3`를 사용할 수 있습
 
 GitHub 등록과 PC의 Git 인증은 별도이므로 실제 수강생 계정으로 점검합니다. 샌드박스 오류가 나면 해당 PC의 실행 환경을 정비합니다. 모델 접근 권한과 중앙 채점 동작은 모델을 호출하지 않는 `doctor`만으로 확인할 수 없으므로, 배포 전에 기본 지침 실행 → 제출 → 채점 수신을 한 번 완료합니다.
 
+## Windows 샌드박스 1385 오류
+
+이 실습의 Windows 기본값은 `unelevated`입니다. `windows.sandbox` 설정과 `codex sandbox --permission-profile` 명령을 지원하는 Codex CLI를 준비합니다. 설정에 `windows_sandbox` 항목이 없던 기존 PC에도 업데이트 후 기본값이 적용됩니다. 이미 다른 방식을 명시한 PC에서는 다음 명령으로 변경합니다.
+
+```powershell
+python start.py doctor --windows-sandbox unelevated
+```
+
+실습 폴더의 `config.json`에 `"windows_sandbox": "unelevated"`가 저장됩니다. 시작 메뉴와 `lab.py run`은 이 선택을 읽어 Windows에서 Codex에 `-c windows.sandbox="unelevated"`를 전달합니다. `doctor`도 같은 설정으로 실제 파일 읽기·쓰기와 테스트를 점검합니다. 관리 정책을 읽는 CLI 옵션이 제공되면 점검에도 적용하며, 실패하면 실행을 중단합니다. 이 설정은 GitHub 제출 권한과는 별개입니다.
+
+1385는 Windows가 샌드박스 실행 계정에 필요한 로그온 권한을 허용하지 않을 때 발생합니다. `unelevated`는 현재 Windows 사용자의 제한된 토큰을 사용하는 방식으로, `elevated`보다 네트워크 격리가 약하고 읽기 금지 경로를 지원하지 않습니다. 조직 정책이 금지하는 경우에는 관리자의 환경 설정이 필요합니다. 샌드박스를 끄거나 관리자 권한으로 과제를 실행하는 옵션은 추가하지 않습니다. [Codex 공식 Windows 샌드박스 안내](https://learn.chatgpt.com/docs/windows/windows-sandbox#configure-a-legacy-fallback)를 참고하세요.
+
+기존 방식은 `python start.py doctor --windows-sandbox elevated`, Codex 자체 설정을 따르는 방식은 `python start.py doctor --windows-sandbox default`로 선택합니다. 명시적으로 선택한 Windows 샌드박스 방식은 실행 조건에 기록하므로, 방식을 바꿨다면 기본 지침 실행부터 다시 측정합니다. Linux와 macOS에서는 이 Windows 설정이 적용되지 않습니다.
+
 ## 수강생 흐름
 
 `start.bat` 또는 `start.command` 실행 → 최초 참가자 번호 입력 → 메뉴에서 실습을 반복합니다. 메뉴는 실행 후에도 유지되며, 제출 후 채점을 기다리지 않고 다음 실험을 진행할 수 있습니다. 제출 실패는 같은 기록으로 재시도합니다. 실습 중에는 로그인이나 Git 계정 설정을 진행하지 않습니다.

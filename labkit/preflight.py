@@ -9,6 +9,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from .codex import command_prefix
+
 
 @dataclass
 class Check:
@@ -37,9 +39,7 @@ def command_check(name: str, command: list[str], cwd: Path) -> Check:
 
 
 def sandbox_check(root: Path, cfg: dict) -> Check:
-    prefix = list(cfg["codex_command"])
-    if cfg.get("profile"):
-        prefix += ["--profile", cfg["profile"]]
+    prefix = command_prefix(cfg)
     help_result = command_check(
         "샌드박스 명령 확인", prefix + ["sandbox", "--help"], root
     )
@@ -62,6 +62,8 @@ def sandbox_check(root: Path, cfg: dict) -> Check:
         )
         if "--permission-profile" in help_result.detail:
             command = prefix + ["sandbox", "-P", ":workspace", "-C", str(workspace)]
+            if "--include-managed-config" in help_result.detail:
+                command.append("--include-managed-config")
         elif sys.platform.startswith("linux") and "linux" in help_result.detail:
             command = prefix + ["sandbox", "linux", "--full-auto"]
         elif sys.platform == "darwin" and "macos" in help_result.detail:

@@ -11,6 +11,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 import start
+from labkit.codex import command_prefix
+from labkit.runner import config
 
 
 class StartupTests(unittest.TestCase):
@@ -73,6 +75,7 @@ class StartupTests(unittest.TestCase):
                 "reasoning_effort": None,
                 "check": False,
                 "participant": None,
+                "windows_sandbox": None,
                 **changes,
             }
         )
@@ -132,6 +135,64 @@ class StartupTests(unittest.TestCase):
         initialize.assert_not_called()
         enroll.assert_not_called()
         prompt.assert_not_called()
+
+    def test_sandbox_choice_is_saved_even_when_another_doctor_check_fails(self):
+        original = {"participant": "p17", "model": "course-model", "profile": "course"}
+        (self.root / "config.json").write_text(json.dumps(original))
+        with (
+            patch("start.ROOT", self.root),
+            patch("labkit.runner.doctor", return_value=False) as doctor,
+            patch("labkit.github_flow.enroll") as enroll,
+        ):
+            self.assertEqual(
+                start.main(["--bootstrapped", "doctor", "--windows-sandbox", "unelevated"]),
+                1,
+            )
+        saved = json.loads((self.root / "config.json").read_text())
+        self.assertEqual(saved["windows_sandbox"], "unelevated")
+        for key, value in original.items():
+            self.assertEqual(saved[key], value)
+        self.assertEqual(doctor.call_args.kwargs["cfg"]["windows_sandbox"], "unelevated")
+        enroll.assert_not_called()
+
+        with patch("labkit.runner.doctor", return_value=True) as doctor:
+            self.assertEqual(start.launch(self.root, self.args(action="doctor")), 0)
+        self.assertEqual(doctor.call_args.kwargs["cfg"]["windows_sandbox"], "unelevated")
+
+    def test_default_sandbox_restores_codex_selection(self):
+        (self.root / "config.json").write_text(
+            json.dumps({"model": "course-model", "windows_sandbox": "unelevated"})
+        )
+        with patch("labkit.runner.doctor", return_value=True):
+            start.launch(self.root, self.args(action="doctor", windows_sandbox="default"))
+        self.assertIsNone(
+            json.loads((self.root / "config.json").read_text())["windows_sandbox"]
+        )
+
+    def test_existing_windows_config_without_sandbox_setting_uses_unelevated(self):
+        (self.root / "config.json").write_text(
+            json.dumps({"model": "course-model", "participant": "p17"})
+        )
+        with patch("labkit.codex.sys.platform", "win32"):
+            cfg = config(self.root)
+            self.assertIn('windows.sandbox="unelevated"', command_prefix(cfg))
+        self.assertEqual(cfg["participant"], "p17")
+
+    def test_explicit_null_keeps_codex_sandbox_configuration(self):
+        (self.root / "config.json").write_text(
+            json.dumps({"model": "course-model", "windows_sandbox": None})
+        )
+        with patch("labkit.codex.sys.platform", "win32"):
+            self.assertEqual(command_prefix(config(self.root)), ["codex"])
+
+    def test_invalid_sandbox_configuration_is_rejected_before_doctor(self):
+        (self.root / "config.json").write_text(
+            json.dumps({"model": "course-model", "windows_sandbox": "disabled"})
+        )
+        with patch("labkit.runner.doctor") as doctor:
+            with self.assertRaisesRegex(ValueError, "windows_sandbox"):
+                start.launch(self.root, self.args(action="doctor"))
+        doctor.assert_not_called()
 
 
 if __name__ == "__main__":

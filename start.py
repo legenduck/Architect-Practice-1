@@ -66,6 +66,10 @@ def launch(root: Path, args: argparse.Namespace) -> int:
         if not args.prepare:
             raise ValueError("추론 설정 변경은 강사용 --prepare에서만 지정하세요.")
         cfg["reasoning_effort"] = args.reasoning_effort
+    if args.windows_sandbox is not None:
+        cfg["windows_sandbox"] = (
+            None if args.windows_sandbox == "default" else args.windows_sandbox
+        )
     if args.prepare:
         if not cfg["model"]:
             raise ValueError(
@@ -79,6 +83,8 @@ def launch(root: Path, args: argparse.Namespace) -> int:
                 "공통 환경 준비 완료. 개인 PC에서 python start.py doctor로 확인하세요."
             )
         return 0 if ok else 1
+    if args.windows_sandbox is not None:
+        write_json(root / "config.json", cfg)
     if args.action == "doctor" or args.check:
         return 0 if doctor(root, cfg=cfg) else 1
     if not doctor(root, cfg=cfg):
@@ -105,6 +111,11 @@ def main(argv: list[str] | None = None) -> int:
         "--reasoning-effort", choices=["minimal", "low", "medium", "high", "xhigh"]
     )
     parser.add_argument("--participant", help="이미 배정받은 참가자 번호")
+    parser.add_argument(
+        "--windows-sandbox",
+        choices=["default", "elevated", "unelevated"],
+        help="Windows 샌드박스 방식을 실습 설정에 저장. default는 Codex 설정 사용",
+    )
     parser.add_argument("--check", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--bootstrapped", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)

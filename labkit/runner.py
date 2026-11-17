@@ -14,6 +14,7 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
+from .codex import command_prefix, windows_sandbox
 from .common import (
     digest,
     extract_zip,
@@ -38,6 +39,7 @@ DEFAULTS = {
     "model": None,
     "profile": None,
     "reasoning_effort": None,
+    "windows_sandbox": "unelevated",
     "timeout_seconds": 900,
     "repository": "https://github.com/legenduck/Architect-Practice-1.git",
 }
@@ -96,6 +98,7 @@ def config(root: Path) -> dict:
         "xhigh",
     ):
         raise ValueError("reasoning_effort 설정을 확인하세요.")
+    windows_sandbox(cfg)
     return cfg
 
 
@@ -189,6 +192,8 @@ def prepare_run(root: Path, variant: str, cfg: dict) -> tuple[Path, dict]:
         "timeout_seconds": cfg["timeout_seconds"],
         "python_version": sys.version.split()[0],
     }
+    if windows_sandbox(cfg):
+        conditions["windows_sandbox"] = windows_sandbox(cfg)
     summary = {
         "schema": 1,
         "id": identifier,
@@ -393,7 +398,7 @@ def execute(root: Path, variant: str, cfg: dict, *, prechecked: bool = False) ->
         require_checks(execution_checks(root, cfg))
     folder, summary = prepare_run(root, variant, cfg)
     started = time.monotonic()
-    command = list(cfg["codex_command"])
+    command = command_prefix(cfg)
     try:
         version = subprocess.run(
             command + ["--version"],
@@ -419,8 +424,6 @@ def execute(root: Path, variant: str, cfg: dict, *, prechecked: bool = False) ->
         ]
         if cfg["model"]:
             command += ["--model", cfg["model"]]
-        if cfg["profile"]:
-            command += ["--profile", cfg["profile"]]
         if cfg.get("reasoning_effort"):
             command += [
                 "-c",
@@ -541,6 +544,8 @@ def doctor(
     include_login: bool = True,
 ) -> bool:
     cfg = config(root) if cfg is None else cfg
+    if windows_sandbox(cfg):
+        print("Windows 샌드박스:", windows_sandbox(cfg))
     checks = execution_checks(root, cfg, include_login=include_login)
     if submission:
         from .github_flow import check_results_ready, check_submission_ready

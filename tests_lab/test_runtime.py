@@ -266,6 +266,70 @@ class RuntimeTests(unittest.TestCase):
         self.assertFalse(result.ok)
         self.assertIn("지원하지 않습니다", result.detail)
 
+    def test_windows_sandbox_selection_reaches_probe_execution_and_comparison(self):
+        conditions = []
+        for mode in ("unelevated", "elevated"):
+            with self.subTest(mode=mode):
+                self.cfg.update(windows_sandbox=mode, profile="course")
+                responses = [
+                    Check("help", True, "--permission-profile --include-managed-config"),
+                    Check("git", True),
+                    Check("probe", True, "PRACTICE1_SANDBOX_OK"),
+                ]
+                with (
+                    patch("labkit.codex.sys.platform", "win32"),
+                    patch("labkit.preflight.command_check", side_effect=responses) as probe,
+                    patch.object(runner, "run_process", wraps=runner.run_process) as process,
+                ):
+                    result = sandbox_check(self.root, self.cfg)
+                    _, summary = self.execute("changed")
+                self.assertTrue(result.ok)
+                probe_command = probe.call_args.args[1]
+                execution_command = process.call_args.args[0]
+                for command in (probe_command, execution_command):
+                    self.assertEqual(
+                        command[command.index("-c") + 1], f'windows.sandbox="{mode}"'
+                    )
+                    self.assertEqual(command[command.index("--profile") + 1], "course")
+                self.assertIn("--include-managed-config", probe_command)
+                self.assertEqual(
+                    execution_command[execution_command.index("--sandbox") + 1],
+                    "workspace-write",
+                )
+                self.assertEqual(summary["execution_status"], "completed")
+                self.assertEqual(summary["conditions"]["windows_sandbox"], mode)
+                conditions.append(summary["condition_id"])
+        self.assertNotEqual(*conditions)
+
+    def test_windows_override_does_not_change_linux_or_macos_execution(self):
+        self.cfg["windows_sandbox"] = "unelevated"
+        for platform in ("linux", "darwin"):
+            with (
+                self.subTest(platform=platform),
+                patch("labkit.codex.sys.platform", platform),
+                patch.object(runner, "run_process", wraps=runner.run_process) as process,
+            ):
+                _, summary = self.execute("changed")
+                self.assertFalse(
+                    any("windows.sandbox" in arg for arg in process.call_args.args[0])
+                )
+                self.assertNotIn("windows_sandbox", summary["conditions"])
+
+    def test_windows_policy_failure_stops_probe_without_falling_back(self):
+        responses = [
+            Check("help", True, "--permission-profile --include-managed-config"),
+            Check("git", True),
+            Check("probe", False, "sandbox implementation denied by managed policy"),
+        ]
+        with (
+            patch("labkit.codex.sys.platform", "win32"),
+            patch("labkit.preflight.command_check", side_effect=responses) as probe,
+        ):
+            result = sandbox_check(self.root, {**self.cfg, "windows_sandbox": "unelevated"})
+        self.assertFalse(result.ok)
+        self.assertIn("managed policy", result.detail)
+        self.assertEqual(probe.call_count, 3)
+
 
 if __name__ == "__main__":
     unittest.main()

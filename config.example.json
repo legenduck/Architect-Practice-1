@@ -6,6 +6,7 @@
   "model": null,
   "profile": null,
   "reasoning_effort": null,
+  "windows_sandbox": "unelevated",
   "timeout_seconds": 900,
   "repository": "https://github.com/legenduck/Architect-Practice-1.git"
 }

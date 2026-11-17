@@ -10,6 +10,8 @@ import sys
 import venv
 from pathlib import Path
 
+from labkit.codex import FIXED_MODEL, FIXED_REASONING_EFFORT
+
 ROOT = Path(__file__).resolve().parent
 
 
@@ -58,23 +60,11 @@ def launch(root: Path, args: argparse.Namespace) -> int:
     cfg = config(root)
     if args.participant:
         cfg["participant"] = participant(args.participant)
-    if args.model:
-        if not args.prepare:
-            raise ValueError("모델 변경은 강사용 --prepare에서만 지정하세요.")
-        cfg["model"] = args.model
-    if args.reasoning_effort:
-        if not args.prepare:
-            raise ValueError("추론 설정 변경은 강사용 --prepare에서만 지정하세요.")
-        cfg["reasoning_effort"] = args.reasoning_effort
     if args.windows_sandbox is not None:
         cfg["windows_sandbox"] = (
             None if args.windows_sandbox == "default" else args.windows_sandbox
         )
     if args.prepare:
-        if not cfg["model"]:
-            raise ValueError(
-                "강사가 --prepare --model 모델명으로 과제 실행 모델을 지정해야 합니다."
-            )
         write_json(root / "config.json", cfg)
         initialize(root)
         ok = doctor(root, submission=False, include_login=False)
@@ -83,8 +73,7 @@ def launch(root: Path, args: argparse.Namespace) -> int:
                 "공통 환경 준비 완료. 개인 PC에서 python start.py doctor로 확인하세요."
             )
         return 0 if ok else 1
-    if args.windows_sandbox is not None:
-        write_json(root / "config.json", cfg)
+    write_json(root / "config.json", cfg)
     if args.action == "doctor" or args.check:
         return 0 if doctor(root, cfg=cfg) else 1
     if not doctor(root, cfg=cfg):
@@ -104,11 +93,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--prepare",
         action="store_true",
-        help="강사용 공통 환경 준비. 모델을 호출하지 않음",
+        help=argparse.SUPPRESS,
     )
-    parser.add_argument("--model")
+    parser.add_argument("--model", choices=[FIXED_MODEL], help=argparse.SUPPRESS)
     parser.add_argument(
-        "--reasoning-effort", choices=["minimal", "low", "medium", "high", "xhigh"]
+        "--reasoning-effort", choices=[FIXED_REASONING_EFFORT], help=argparse.SUPPRESS
     )
     parser.add_argument("--participant", help="이미 배정받은 참가자 번호")
     parser.add_argument(

@@ -3,9 +3,9 @@
   "codex_command": [
     "codex"
   ],
-  "model": null,
+  "model": "gpt-5.6-terra",
   "profile": null,
-  "reasoning_effort": null,
+  "reasoning_effort": "medium",
   "windows_sandbox": "unelevated",
   "timeout_seconds": 900,
   "repository": "https://github.com/legenduck/Architect-Practice-1.git"

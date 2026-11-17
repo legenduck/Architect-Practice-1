@@ -14,6 +14,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from labkit import runner
+from labkit.codex import FIXED_MODEL
 from labkit.common import read_json, source_digest
 from labkit.preflight import Check, sandbox_check
 from labkit.report import display_status, render_report
@@ -100,7 +101,8 @@ class RuntimeTests(unittest.TestCase):
         self.assertEqual(summary["execution_status"], "completed")
         self.assertTrue(summary["source_changed"])
         self.assertTrue(summary["comparison_valid"])
-        self.assertEqual(summary["conditions"]["reasoning_effort"], "high")
+        self.assertEqual(summary["conditions"]["model"], FIXED_MODEL)
+        self.assertEqual(summary["conditions"]["reasoning_effort"], "medium")
         self.assertEqual(summary["grade"]["status"], "pending")
         self.assertTrue((self.root / "submissions" / (folder.name + ".zip")).is_file())
 
@@ -220,7 +222,7 @@ class RuntimeTests(unittest.TestCase):
                 "labkit.github_flow.check_submission_ready",
                 return_value="students/probe",
             ) as submission,
-            patch("labkit.github_flow.check_results_ready"),
+            patch("labkit.github_flow.check_results_ready") as results,
             patch.object(runner, "run_process") as process,
             contextlib.redirect_stdout(output),
         ):
@@ -228,9 +230,40 @@ class RuntimeTests(unittest.TestCase):
         self.assertIn("[FAIL] 샌드박스", output.getvalue())
         self.assertNotIn("long diagnostic", output.getvalue())
         self.assertIn("long diagnostic", (self.root / "doctor.log").read_text())
-        self.assertFalse(submission.call_args.kwargs["require_enrollment"])
+        submission.assert_not_called()
+        results.assert_not_called()
         process.assert_not_called()
         self.assertFalse((self.root / "runs").exists())
+
+    def test_doctor_passes_without_github_permissions_or_published_results(self):
+        output = io.StringIO()
+        with (
+            patch.object(runner, "execution_checks", return_value=[Check("local", True)]),
+            patch(
+                "labkit.github_flow.check_submission_ready",
+                side_effect=ValueError("no permission"),
+            ) as submission,
+            patch(
+                "labkit.github_flow.check_results_ready",
+                side_effect=ValueError("no results"),
+            ) as results,
+            contextlib.redirect_stdout(output),
+        ):
+            self.assertTrue(runner.doctor(self.root, cfg=self.cfg))
+        submission.assert_not_called()
+        results.assert_not_called()
+        self.assertIn(FIXED_MODEL, output.getvalue())
+        self.assertNotIn("강사가", output.getvalue())
+        self.assertNotIn("Git 제출 접속", output.getvalue())
+
+    def test_execution_uses_fixed_model_even_with_stale_configuration(self):
+        with patch.object(runner, "run_process", wraps=runner.run_process) as process:
+            _, summary = self.execute("changed")
+        command = process.call_args.args[0]
+        self.assertEqual(command[command.index("--model") + 1], FIXED_MODEL)
+        self.assertIn('model_reasoning_effort="medium"', command)
+        self.assertEqual(summary["conditions"]["model"], FIXED_MODEL)
+        self.assertEqual(summary["conditions"]["reasoning_effort"], "medium")
 
     def test_report_escapes_diagnostics_and_links_only_existing_logs(self):
         folder, summary = self.execute("failed")

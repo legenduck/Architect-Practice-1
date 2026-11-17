@@ -14,7 +14,13 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
-from .codex import command_prefix, windows_sandbox
+from .codex import (
+    FIXED_MODEL,
+    FIXED_REASONING_EFFORT,
+    command_prefix,
+    windows_sandbox,
+    with_fixed_model,
+)
 from .common import (
     digest,
     extract_zip,
@@ -36,9 +42,9 @@ LABELS = {
 DEFAULTS = {
     "participant": None,
     "codex_command": ["codex"],
-    "model": None,
+    "model": FIXED_MODEL,
     "profile": None,
-    "reasoning_effort": None,
+    "reasoning_effort": FIXED_REASONING_EFFORT,
     "windows_sandbox": "unelevated",
     "timeout_seconds": 900,
     "repository": "https://github.com/legenduck/Architect-Practice-1.git",
@@ -69,11 +75,13 @@ def protected_files(workspace: Path) -> dict:
 def config(root: Path) -> dict:
     path = root / "config.json"
     example = root / "config.example.json"
-    cfg = {
-        **DEFAULTS,
-        **(read_json(example) if example.exists() else {}),
-        **(read_json(path) if path.exists() else {}),
-    }
+    cfg = with_fixed_model(
+        {
+            **DEFAULTS,
+            **(read_json(example) if example.exists() else {}),
+            **(read_json(path) if path.exists() else {}),
+        }
+    )
     if (
         not isinstance(cfg["codex_command"], list)
         or not cfg["codex_command"]
@@ -85,19 +93,6 @@ def config(root: Path) -> dict:
         or not 1 <= cfg["timeout_seconds"] <= 3600
     ):
         raise ValueError("실행 제한 시간은 1~3600초 범위여야 합니다.")
-    if cfg["model"] is not None and (
-        not isinstance(cfg["model"], str) or not cfg["model"].strip()
-    ):
-        raise ValueError("model은 연구원이 지정한 모델 이름이어야 합니다.")
-    if cfg["reasoning_effort"] not in (
-        None,
-        "minimal",
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-    ):
-        raise ValueError("reasoning_effort 설정을 확인하세요.")
     windows_sandbox(cfg)
     return cfg
 
@@ -392,8 +387,7 @@ def apply_grade(summary: dict, receipt: dict) -> None:
 
 
 def execute(root: Path, variant: str, cfg: dict, *, prechecked: bool = False) -> Path:
-    if not cfg["model"]:
-        raise ValueError("config.json의 model을 연구원이 지정한 값으로 설정하세요.")
+    cfg = with_fixed_model(cfg)
     if not prechecked:
         require_checks(execution_checks(root, cfg))
     folder, summary = prepare_run(root, variant, cfg)
@@ -540,10 +534,11 @@ def doctor(
     root: Path,
     *,
     cfg: dict | None = None,
-    submission: bool = True,
+    submission: bool = False,
     include_login: bool = True,
 ) -> bool:
-    cfg = config(root) if cfg is None else cfg
+    cfg = config(root) if cfg is None else with_fixed_model(cfg)
+    print(f"실습 모델: {cfg['model']} / {cfg['reasoning_effort']}")
     if windows_sandbox(cfg):
         print("Windows 샌드박스:", windows_sandbox(cfg))
     checks = execution_checks(root, cfg, include_login=include_login)

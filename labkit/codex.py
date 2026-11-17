@@ -4,6 +4,13 @@ from __future__ import annotations
 
 import sys
 
+FIXED_MODEL = "gpt-5.6-terra"
+FIXED_REASONING_EFFORT = "medium"
+
+
+def with_fixed_model(cfg: dict) -> dict:
+    return {**cfg, "model": FIXED_MODEL, "reasoning_effort": FIXED_REASONING_EFFORT}
+
 
 def windows_sandbox(cfg: dict) -> str | None:
     mode = cfg.get("windows_sandbox")

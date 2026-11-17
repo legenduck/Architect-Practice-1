@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import start
-from labkit.codex import command_prefix
+from labkit.codex import FIXED_MODEL, FIXED_REASONING_EFFORT, command_prefix
 from labkit.runner import config
 
 
@@ -55,7 +55,7 @@ class StartupTests(unittest.TestCase):
         )
         (self.root / "edit").mkdir()
         (self.root / "edit/AGENTS.md").write_text("learner work")
-        args = self.args(prepare=True, model="course-model", reasoning_effort="high")
+        args = self.args(prepare=True)
         with (
             patch("labkit.runner.doctor", return_value=True),
             contextlib.redirect_stdout(io.StringIO()),
@@ -63,7 +63,8 @@ class StartupTests(unittest.TestCase):
             self.assertEqual(start.launch(self.root, args), 0)
         cfg = json.loads((self.root / "config.json").read_text())
         self.assertEqual(cfg["participant"], "p17")
-        self.assertEqual(cfg["model"], "course-model")
+        self.assertEqual(cfg["model"], FIXED_MODEL)
+        self.assertEqual(cfg["reasoning_effort"], FIXED_REASONING_EFFORT)
         self.assertEqual((self.root / "edit/AGENTS.md").read_text(), "learner work")
 
     def args(self, **changes):
@@ -150,8 +151,9 @@ class StartupTests(unittest.TestCase):
             )
         saved = json.loads((self.root / "config.json").read_text())
         self.assertEqual(saved["windows_sandbox"], "unelevated")
-        for key, value in original.items():
-            self.assertEqual(saved[key], value)
+        self.assertEqual(saved["model"], FIXED_MODEL)
+        for key in ("participant", "profile"):
+            self.assertEqual(saved[key], original[key])
         self.assertEqual(doctor.call_args.kwargs["cfg"]["windows_sandbox"], "unelevated")
         enroll.assert_not_called()
 
@@ -193,6 +195,43 @@ class StartupTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "windows_sandbox"):
                 start.launch(self.root, self.args(action="doctor"))
         doctor.assert_not_called()
+
+    def test_fixed_model_replaces_missing_null_and_old_settings(self):
+        for saved in (
+            {},
+            {"model": None, "reasoning_effort": None},
+            {"model": "old-model", "reasoning_effort": "high"},
+        ):
+            with self.subTest(saved=saved):
+                (self.root / "config.json").write_text(json.dumps(saved))
+                cfg = config(self.root)
+                self.assertEqual(cfg["model"], FIXED_MODEL)
+                self.assertEqual(cfg["reasoning_effort"], "medium")
+
+    def test_first_start_needs_no_instructor_model_setup(self):
+        with (
+            patch("labkit.runner.doctor", return_value=True) as doctor,
+            patch("start.answer", return_value="p01"),
+            patch("labkit.github_flow.enroll", return_value="students/p01"),
+            patch("labkit.runner.initialize"),
+            patch("labkit.runner.run_menu") as menu,
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(start.launch(self.root, self.args()), 0)
+        cfg = doctor.call_args.kwargs["cfg"]
+        self.assertEqual(cfg["model"], FIXED_MODEL)
+        self.assertEqual(cfg["reasoning_effort"], "medium")
+        self.assertEqual(menu.call_args.kwargs["ready_config"]["model"], FIXED_MODEL)
+        saved = json.loads((self.root / "config.json").read_text())
+        self.assertEqual(saved["model"], FIXED_MODEL)
+
+    def test_help_does_not_show_instructor_model_options(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), self.assertRaises(SystemExit) as result:
+            start.main(["--help"])
+        self.assertEqual(result.exception.code, 0)
+        for option in ("--prepare", "--model", "--reasoning-effort"):
+            self.assertNotIn(option, output.getvalue())
 
 
 if __name__ == "__main__":

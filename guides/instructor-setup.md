@@ -21,15 +21,14 @@ Python 3.10 이상, Git, 수업용 Codex CLI를 설치하고 각 PC에서 실행
 ```bash
 git clone https://github.com/legenduck/Architect-Practice-1.git
 cd Architect-Practice-1
-python start.py --prepare --model <수업용_모델명> --reasoning-effort high
 python start.py doctor
 ```
 
-Windows에서는 `py -3`, macOS/Linux에서는 `python3`를 사용할 수 있습니다. 모델·추론 설정·CLI 버전·전역 지침은 수업 전체에서 동일하게 맞춥니다. `--prepare`는 패키지와 작업 폴더를 준비하며 기존 지침을 보존합니다. 참가자 번호도 미리 넣으려면 `--participant p01`을 추가합니다. `config.json`과 `.venv`는 PC별로 준비하며 Git에 포함되지 않습니다.
+Windows에서는 `py -3`, macOS/Linux에서는 `python3`를 사용할 수 있습니다. 모델은 `gpt-5.6-terra`, 추론 강도는 `medium`으로 고정되어 있어 별도 모델 설정이 필요하지 않습니다. 이전 `config.json`의 모델·추론 값도 실행 시 고정값으로 대체됩니다. CLI 버전·전역 지침은 수업 전체에서 동일하게 맞춥니다. 기존 `--prepare` 명령은 패키지와 작업 폴더를 미리 준비하는 용도로 유지하지만 일반 시작에는 필요하지 않습니다. 참가자 번호를 미리 넣으려면 `--participant p01`을 추가합니다. `config.json`과 `.venv`는 PC별로 준비하며 Git에 포함되지 않습니다.
 
 ## 준비 확인
 
-`doctor`는 도구·모델 설정·기존 Codex 로그인·샌드박스 파일 입출력과 테스트·Git 제출 접속·채점 결과 수신 경로를 확인합니다. 참가자 번호 입력, 브랜치 전환, 커밋, push, 모델 호출은 하지 않습니다. 결과는 짧게 표시하고 상세 오류는 `doctor.log`에 남깁니다. 강사는 학생 점검 전에 위 자동 채점을 한 번 실행해야 합니다.
+`doctor`는 실행 도구·Codex 로그인·샌드박스 파일 입출력과 테스트만 확인합니다. 강사용 모델 설정이나 GitHub 제출 권한·채점 결과 수신 경로는 확인하지 않습니다. 참가자 번호 입력, 브랜치 전환, 커밋, push, 모델 호출은 하지 않습니다. 시작 도구는 고정 모델 설정을 `config.json`에 저장합니다. 결과는 짧게 표시하고 상세 오류는 `doctor.log`에 남깁니다. 중앙 채점 준비는 GitHub 제출 기능을 사용할 때 별도로 진행합니다.
 
 GitHub 등록과 PC의 Git 인증은 별도이므로 실제 수강생 계정으로 점검합니다. 샌드박스 오류가 나면 해당 PC의 실행 환경을 정비합니다. 모델 접근 권한과 중앙 채점 동작은 모델을 호출하지 않는 `doctor`만으로 확인할 수 없으므로, 배포 전에 기본 지침 실행 → 제출 → 채점 수신을 한 번 완료합니다.
 

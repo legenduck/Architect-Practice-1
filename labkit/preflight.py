@@ -95,14 +95,6 @@ def sandbox_check(root: Path, cfg: dict) -> Check:
 def execution_checks(
     root: Path, cfg: dict, *, include_login: bool = True
 ) -> list[Check]:
-    checks = [
-        Check(
-            "과제 실행 모델",
-            bool(cfg.get("model")),
-            cfg.get("model")
-            or "강사가 start.py --prepare --model 모델명으로 먼저 설정해야 합니다.",
-        )
-    ]
     tools = [
         command_check(label, command, root)
         for label, command in [
@@ -114,7 +106,7 @@ def execution_checks(
             ("Codex", cfg["codex_command"] + ["--version"]),
         ]
     ]
-    checks += tools
+    checks = list(tools)
     if tools[-1].ok:
         if include_login:
             login = command_check(
